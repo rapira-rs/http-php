@@ -1,0 +1,229 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Rapira\Sdk\Http;
+
+use Psr\Http\Message\ServerRequestFactoryInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\StreamFactoryInterface;
+use Psr\Http\Message\UploadedFileFactoryInterface;
+use Psr\Http\Message\UriFactoryInterface;
+use Psr\Http\Message\UriInterface;
+
+/**
+ * Creates a PSR-7 server request from the PHP SAPI environment (superglobals), the shape Rapira exposes
+ * in classic and worker run modes.
+ *
+ * The counterpart of {@see DispatcherRequestFactory}, which hydrates the request from the {@see \Rapira\Http\Exchange}
+ * the host hands the worker in dispatcher mode.
+ */
+final readonly class SapiRequestFactory
+{
+    public function __construct(
+        private ServerRequestFactoryInterface $serverRequestFactory,
+        private UriFactoryInterface $uriFactory,
+        private UploadedFileFactoryInterface $uploadedFileFactory,
+        private StreamFactoryInterface $streamFactory,
+    ) {}
+
+    /**
+     * Creates an instance of a server request from custom parameters.
+     *
+     * @param false|resource|null $body
+     *
+     * @return ServerRequestInterface The server request instance.
+     */
+    public function create(mixed $body = null): ServerRequestInterface
+    {
+        // Create a base request
+        $method = $_SERVER['REQUEST_METHOD'] ?? null;
+        if ($method === null) {
+            throw new \RuntimeException('Unable to determine HTTP request method.');
+        }
+        $request = $this->serverRequestFactory->createServerRequest($method, $this->createUri(), $_SERVER);
+
+        // Add headers
+        foreach ($this->getHeaders() as $name => $value) {
+            if ($name === 'Host' && $request->hasHeader('Host')) {
+                continue;
+            }
+            $request = $request->withAddedHeader($name, $value);
+        }
+
+        // Add protocol
+        $protocol = !empty($_SERVER['SERVER_PROTOCOL'])
+            ? \str_replace('HTTP/', '', $_SERVER['SERVER_PROTOCOL'])
+            : '1.1';
+        $request = $request->withProtocolVersion($protocol);
+
+        // Add body
+        $body ??= \fopen('php://input', 'rb');
+        if ($body !== false) {
+            $request = $request->withBody(
+                $this->streamFactory->createStreamFromResource($body),
+            );
+        }
+
+        // Parse body
+        if ($method === 'POST') {
+            $contentType = $request->getHeaderLine('content-type');
+            if (\preg_match('~^(?:application/x-www-form-urlencoded|multipart/form-data)(?:$| |;)~', $contentType) === 1) {
+                $request = $request->withParsedBody($_POST);
+            }
+        }
+
+        // Add query and cookie params
+        $request = $request
+            ->withQueryParams($_GET)
+            ->withCookieParams($_COOKIE);
+
+        // Add uploaded files
+        $files = [];
+        foreach ($_FILES as $class => $info) {
+            $files[$class] = [];
+            $this->populateUploadedFileRecursive(
+                $files[$class],
+                $info['name'],
+                $info['tmp_name'],
+                $info['type'],
+                $info['size'],
+                $info['error'],
+            );
+        }
+        $request = $request->withUploadedFiles($files);
+
+        return $request;
+    }
+
+    private function createUri(): UriInterface
+    {
+        $uri = $this->uriFactory->createUri();
+
+        if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+            $uri = $uri->withScheme('https');
+        } else {
+            $uri = $uri->withScheme('http');
+        }
+
+        $uri = isset($_SERVER['SERVER_PORT'])
+            ? $uri->withPort((int) $_SERVER['SERVER_PORT'])
+            : $uri->withPort($uri->getScheme() === 'https' ? 443 : 80);
+
+        if (isset($_SERVER['HTTP_HOST'])) {
+            $uri = \preg_match('/^(.+):(\d+)$/', $_SERVER['HTTP_HOST'], $matches) === 1
+                ? $uri
+                    ->withHost($matches[1])
+                    ->withPort((int) $matches[2])
+                : $uri->withHost($_SERVER['HTTP_HOST']);
+        } elseif (isset($_SERVER['SERVER_NAME'])) {
+            $uri = $uri->withHost($_SERVER['SERVER_NAME']);
+        }
+
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $requestUri = $_SERVER['REQUEST_URI'];
+            $pos = \strpos($requestUri, '?');
+            $uri = $uri->withPath($pos === false ? $requestUri : \substr($requestUri, 0, $pos));
+        }
+
+        if (isset($_SERVER['QUERY_STRING'])) {
+            $uri = $uri->withQuery($_SERVER['QUERY_STRING']);
+        }
+
+        return $uri;
+    }
+
+    /**
+     * @psalm-return array<string, string>
+     */
+    private function getHeaders(): array
+    {
+        /** @psalm-var array<string, string> $_SERVER */
+
+        if (\function_exists('getallheaders') && ($headers = getallheaders()) !== false) {
+            /** @psalm-var array<string, string> $headers */
+            return $headers;
+        }
+
+        $headers = [];
+
+        foreach ($_SERVER as $name => $value) {
+            if (\str_starts_with($name, 'REDIRECT_')) {
+                $name = \substr($name, 9);
+
+                if (isset($_SERVER[$name])) {
+                    continue;
+                }
+            }
+
+            if (\str_starts_with($name, 'HTTP_')) {
+                $headers[$this->normalizeHeaderName(\substr($name, 5))] = $value;
+                continue;
+            }
+
+            if (\str_starts_with($name, 'CONTENT_')) {
+                $headers[$this->normalizeHeaderName($name)] = $value;
+            }
+        }
+
+        return $headers;
+    }
+
+    private function normalizeHeaderName(string $name): string
+    {
+        return \str_replace(' ', '-', \ucwords(\strtolower(\str_replace('_', ' ', $name))));
+    }
+
+    /**
+     * Populates uploaded files array from $_FILE data structure recursively.
+     *
+     * @param array $files Uploaded files array to be populated.
+     * @param mixed $names File names provided by PHP.
+     * @param mixed $tempNames Temporary file names provided by PHP.
+     * @param mixed $types File types provided by PHP.
+     * @param mixed $sizes File sizes provided by PHP.
+     * @param mixed $errors Uploading issues provided by PHP.
+     *
+     * @psalm-suppress MixedArgument, ReferenceConstraintViolation
+     */
+    private function populateUploadedFileRecursive(
+        array &$files,
+        mixed $names,
+        mixed $tempNames,
+        mixed $types,
+        mixed $sizes,
+        mixed $errors,
+    ): void {
+        if (\is_array($names)) {
+            /** @var array|string $name */
+            foreach ($names as $i => $name) {
+                $files[$i] = [];
+                /** @psalm-suppress MixedArrayAccess */
+                $this->populateUploadedFileRecursive(
+                    $files[$i],
+                    $name,
+                    $tempNames[$i],
+                    $types[$i],
+                    $sizes[$i],
+                    $errors[$i],
+                );
+            }
+
+            return;
+        }
+
+        try {
+            $stream = $this->streamFactory->createStreamFromFile($tempNames);
+        } catch (\RuntimeException) {
+            $stream = $this->streamFactory->createStream();
+        }
+
+        $files = $this->uploadedFileFactory->createUploadedFile(
+            $stream,
+            (int) $sizes,
+            (int) $errors,
+            $names,
+            $types,
+        );
+    }
+}

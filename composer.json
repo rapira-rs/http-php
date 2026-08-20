@@ -1,0 +1,43 @@
+{
+    "name": "rapira/http",
+    "description": "PSR-7 server-request factories for every rapira run mode",
+    "license": "BSD-3-Clause",
+    "type": "library",
+    "keywords": [
+        "rapira",
+        "psr-7",
+        "http",
+        "request-factory"
+    ],
+    "homepage": "https://github.com/rapira-rs/http-php",
+    "authors": [
+        {
+            "name": "Aleksei Gagarin",
+            "homepage": "https://github.com/roxblnfk"
+        }
+    ],
+    "funding": [
+        {
+            "type": "boosty",
+            "url": "https://boosty.to/roxblnfk"
+        }
+    ],
+    "require": {
+        "php": ">=8.4",
+        "psr/http-factory": "^1.0",
+        "psr/http-message": "^1.0 || ^2.0",
+        "rapira/contract": "dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "Rapira\\Sdk\\Http\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "branch-alias": {
+            "dev-1.x": "1.x-dev"
+        }
+    }
+}
