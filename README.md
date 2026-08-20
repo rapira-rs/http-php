@@ -2,10 +2,6 @@
 
 # rapira/http
 
-**PSR-7 server-request factories for every Rapira run mode**
-
-[![Support on Boosty](https://img.shields.io/static/v1?style=for-the-badge&label=&message=Sponsorship&logo=Boosty&logoColor=white&color=%23F15F2C)](https://boosty.to/roxblnfk)
-
 </div>
 
 <br />
@@ -34,7 +30,7 @@ composer require rapira/http
 
 [![PHP](https://img.shields.io/packagist/php-v/rapira/http.svg?style=flat-square&logo=php)](https://packagist.org/packages/rapira/http)
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/rapira/http.svg?style=flat-square&logo=packagist)](https://packagist.org/packages/rapira/http)
-[![License](https://img.shields.io/packagist/l/rapira/http.svg?style=flat-square)](https://github.com/rapira-rs/sdk-php/blob/1.x/LICENSE.md)
+[![License](https://img.shields.io/packagist/l/rapira/http.svg?style=flat-square)](LICENSE.md)
 [![Total Downloads](https://img.shields.io/packagist/dt/rapira/http.svg?style=flat-square)](https://packagist.org/packages/rapira/http/stats)
 
 ## Usage
@@ -67,7 +63,3 @@ $factory = new DispatcherRequestFactory(
 
 $request = $factory->create($exchange); // Rapira\Http\Exchange
 ```
-
-## License
-
-BSD-3-Clause. See [LICENSE.md](https://github.com/rapira-rs/sdk-php/blob/1.x/LICENSE.md).

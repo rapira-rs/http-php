@@ -1,6 +1,6 @@
 {
     "name": "rapira/http",
-    "description": "PSR-7 server-request factories for every rapira run mode",
+    "description": "PSR-7 server-request factories for every Rapira run mode",
     "license": "BSD-3-Clause",
     "type": "library",
     "keywords": [
@@ -28,9 +28,18 @@
         "psr/http-message": "^1.0 || ^2.0",
         "rapira/contract": "dev-master"
     },
+    "require-dev": {
+        "httpsoft/http-message": "^1.0",
+        "testo/testo": "^0.10.42"
+    },
     "autoload": {
         "psr-4": {
             "Rapira\\Sdk\\Http\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Rapira\\Sdk\\Tests\\": "tests/"
         }
     },
     "minimum-stability": "dev",
