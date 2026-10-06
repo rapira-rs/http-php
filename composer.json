@@ -20,17 +20,21 @@
         {
             "type": "boosty",
             "url": "https://boosty.to/roxblnfk"
+        },
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/rapira-rs"
         }
     ],
     "require": {
         "php": ">=8.4",
         "psr/http-factory": "^1.0",
         "psr/http-message": "^1.0 || ^2.0",
-        "rapira/contract": "dev-master"
+        "rapira/contract": "^0.9"
     },
     "require-dev": {
-        "httpsoft/http-message": "^1.0",
-        "testo/testo": "^0.10.42"
+        "httpsoft/http-message": "^1.1.6",
+        "testo/testo": "^0.10.55"
     },
     "autoload": {
         "psr-4": {

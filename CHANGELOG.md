@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/rapira-rs/sdk-php/compare/http-0.1.2...http-0.1.3) (2026-10-06)
+
+
+### Dependencies
+
+* update dev dependencies ([3741fca](https://github.com/rapira-rs/sdk-php/commit/3741fca741a3a5f7fd40e001e155a575c3e4af88))
+
 ## [0.1.2](https://github.com/rapira-rs/sdk-php/compare/http-0.1.1...http-0.1.2) (2026-08-20)
 
 
