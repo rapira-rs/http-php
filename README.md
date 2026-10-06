@@ -63,3 +63,7 @@ $factory = new DispatcherRequestFactory(
 
 $request = $factory->create($exchange); // Rapira\Http\Exchange
 ```
+
+### Dispatcher mode
+
+Dispatcher mode is built for async code, so `DispatcherRequestFactory` builds each request from the exchange alone: it never reads or writes the superglobals and keeps no state between requests. Code that needs `$_SERVER`, `$_GET` and the rest belongs in worker mode.

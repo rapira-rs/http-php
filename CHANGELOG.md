@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5](https://github.com/rapira-rs/sdk-php/compare/http-0.1.4...http-0.1.5) (2026-10-06)
+
+
+### Bug Fixes
+
+* **http:** fill server params the way the Rapira SAPI fills $_SERVER ([423e8d6](https://github.com/rapira-rs/sdk-php/commit/423e8d6193acadafbe0a0804d32ddc086952116f))
+* **http:** match the form Content-Type case-insensitively ([e7886cb](https://github.com/rapira-rs/sdk-php/commit/e7886cbab9d8dbd257442df2bbb99e1b7d84fbdb))
+* **http:** name uploaded files the way PHP fills $_FILES ([0ab038e](https://github.com/rapira-rs/sdk-php/commit/0ab038e89d505512f3a74b73dd5b2cc601fb7aca))
+* **http:** take the query from the request-target as sent ([f737489](https://github.com/rapira-rs/sdk-php/commit/f73748961bda7a9461c373669299c89b54a4cbf7))
+
 ## [0.1.4](https://github.com/rapira-rs/sdk-php/compare/http-0.1.3...http-0.1.4) (2026-10-06)
 
 

@@ -8,6 +8,7 @@ use HttpSoft\Message\ServerRequestFactory;
 use HttpSoft\Message\StreamFactory;
 use HttpSoft\Message\UploadedFileFactory;
 use Psr\Http\Message\StreamFactoryInterface;
+use Psr\Http\Message\UploadedFileInterface;
 use Rapira\Http\FormField;
 use Rapira\Http\Multipart;
 use Rapira\Http\Request;
@@ -20,6 +21,7 @@ use Rapira\Sdk\Tests\Support\FailingFileStreamFactory;
 use Rapira\Sdk\Tests\Support\StubExchange;
 use Testo\Assert;
 use Testo\Codecov\Covers;
+use Testo\Data\DataSet;
 use Testo\Test;
 
 #[Covers(DispatcherRequestFactory::class)]
@@ -52,11 +54,32 @@ final class DispatcherRequestFactoryTest
     }
 
     #[Test]
-    public function testQueryParamsAreParsedFromUri(): void
+    public function testQueryParamsAreParsedFromTarget(): void
     {
-        $request = $this->create(self::request(uri: 'http://host/p?a=1&b[]=2&b[]=3'));
+        $request = $this->create(self::request(target: '/p?a=1&b[]=2&b[]=3'));
 
         Assert::same($request->getQueryParams(), ['a' => '1', 'b' => ['2', '3']]);
+    }
+
+    #[Test]
+    public function testQueryIsTakenFromTargetAsSent(): void
+    {
+        $request = $this->create(self::request(
+            uri: 'http://host/p?e=[1]&a=%zz&c+d=x%20y',
+            target: '/p?e=[1]&a=%zz&c+d=x%20y',
+        ));
+
+        Assert::same($request->getServerParams()['QUERY_STRING'], 'e=[1]&a=%zz&c+d=x%20y');
+        Assert::same($request->getQueryParams(), ['e' => '[1]', 'a' => '%zz', 'c_d' => 'x y']);
+    }
+
+    #[Test]
+    public function testQueryIsNotTakenFromUri(): void
+    {
+        $request = $this->create(self::request(uri: 'http://host/p?from=uri', target: '/p'));
+
+        Assert::same($request->getServerParams()['QUERY_STRING'], '');
+        Assert::same($request->getQueryParams(), []);
     }
 
     #[Test]
@@ -224,8 +247,84 @@ final class DispatcherRequestFactoryTest
         $params = $request->getServerParams();
 
         Assert::same($params['CONTENT_TYPE'], 'application/json');
+        Assert::same($params['HTTP_CONTENT_TYPE'], 'application/json');
         Assert::same($params['CONTENT_LENGTH'], '12');
+        Assert::same($params['HTTP_CONTENT_LENGTH'], '12');
         Assert::same($params['HTTP_X_CUSTOM'], 'v1, v2');
+    }
+
+    #[Test]
+    public function testHeadersNamedOutsideTokenAlphabetAreNotMirrored(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'x-forwarded-for' => ['1.1.1.1'],
+            'X_Forwarded_For' => ['6.6.6.6'],
+            'X.Forwarded.For' => ['7.7.7.7'],
+            'x~tilde' => ['1'],
+        ]));
+
+        $params = $request->getServerParams();
+
+        Assert::same($params['HTTP_X_FORWARDED_FOR'], '1.1.1.1');
+        Assert::same(\array_keys(\array_filter(
+            $params,
+            static fn(string $key): bool => \str_starts_with($key, 'HTTP_'),
+            \ARRAY_FILTER_USE_KEY,
+        )), ['HTTP_X_FORWARDED_FOR']);
+        Assert::same($request->getHeaderLine('X_Forwarded_For'), '6.6.6.6');
+    }
+
+    #[Test]
+    public function testCgiServerParams(): void
+    {
+        $request = $this->create(self::request(
+            uri: 'http://Example.COM:8080/a/b?x=1',
+            target: '/a/b?x=1',
+            authority: 'Example.COM:8080',
+        ));
+
+        $params = $request->getServerParams();
+
+        Assert::same($params['GATEWAY_INTERFACE'], 'CGI/1.1');
+        Assert::same($params['SERVER_SOFTWARE'], 'Rapira');
+        Assert::same($params['REQUEST_SCHEME'], 'http');
+        Assert::same($params['SERVER_NAME'], 'Example.COM');
+        Assert::same($params['HTTP_HOST'], 'Example.COM:8080');
+        Assert::same($params['DOCUMENT_URI'], '/a/b');
+        Assert::same($params['QUERY_STRING'], 'x=1');
+    }
+
+    #[Test]
+    public function testServerNameOfIpv6Authority(): void
+    {
+        $request = $this->create(self::request(uri: 'http://[::1]:8080/', authority: '[::1]:8080'));
+
+        Assert::same($request->getServerParams()['SERVER_NAME'], '::1');
+    }
+
+    #[Test]
+    public function testHttpsSchemeComesFromTheListener(): void
+    {
+        $params = $this->create(self::request(uri: 'https://example.com/'))->getServerParams();
+
+        Assert::same($params['REQUEST_SCHEME'], 'https');
+        Assert::same($params['HTTPS'], 'on');
+    }
+
+    #[Test]
+    public function testScriptParamsAreAbsent(): void
+    {
+        $saved = $_SERVER['SCRIPT_FILENAME'] ?? null;
+        $_SERVER['SCRIPT_FILENAME'] = '/srv/worker.php';
+        try {
+            $params = $this->create(self::request())->getServerParams();
+        } finally {
+            $_SERVER['SCRIPT_FILENAME'] = $saved;
+        }
+
+        foreach (['SCRIPT_FILENAME', 'SCRIPT_NAME', 'PHP_SELF', 'DOCUMENT_ROOT'] as $key) {
+            Assert::false(\array_key_exists($key, $params));
+        }
     }
 
     #[Test]
@@ -239,6 +338,58 @@ final class DispatcherRequestFactoryTest
 
         Assert::same($request->getParsedBody(), ['a' => '1', 'b' => ['2', '3']]);
         Assert::same((string) $request->getBody(), 'a=1&b[]=2&b[]=3');
+    }
+
+    #[Test]
+    #[DataSet(['Application/X-WWW-Form-Urlencoded'], 'mixed case')]
+    #[DataSet(['application/x-www-form-urlencoded; charset=UTF-8'], 'parameter')]
+    #[DataSet(['application/x-www-form-urlencoded,text/plain'], 'comma')]
+    #[DataSet(['application/x-www-form-urlencoded charset'], 'space')]
+    public function testFormContentTypeMatchesTheWayPhpDoes(string $contentType): void
+    {
+        $request = $this->create(self::request(
+            method: 'POST',
+            headers: ['Content-Type' => [$contentType]],
+            body: 'a=1',
+        ));
+
+        Assert::same($request->getParsedBody(), ['a' => '1']);
+    }
+
+    #[Test]
+    public function testFormContentTypeWithSuffixIsNotParsed(): void
+    {
+        $request = $this->create(self::request(
+            method: 'POST',
+            headers: ['Content-Type' => ['application/x-www-form-urlencodedx']],
+            body: 'a=1',
+        ));
+
+        Assert::null($request->getParsedBody());
+    }
+
+    #[Test]
+    #[DataSet(['POST'])]
+    #[DataSet(['PUT'])]
+    #[DataSet(['PATCH'])]
+    #[DataSet(['DELETE'])]
+    #[DataSet(['GET'])]
+    #[DataSet(['QUERY'])]
+    #[DataSet(['post'], 'lowercase')]
+    #[DataSet(['PROPFIND'], 'extension method')]
+    public function testFormBodyIsParsedWhateverTheMethod(string $method): void
+    {
+        $form = $this->create(self::request(
+            method: $method,
+            headers: ['Content-Type' => ['application/x-www-form-urlencoded']],
+            body: 'a=1',
+        ));
+        $multipart = $this->create(self::request(method: $method, body: self::multipartWithFile()));
+
+        Assert::same($form->getParsedBody(), ['a' => '1']);
+        Assert::same((string) $form->getBody(), 'a=1');
+        Assert::same($multipart->getParsedBody(), ['name' => 'John']);
+        Assert::same(\array_keys($multipart->getUploadedFiles()), ['avatar']);
     }
 
     #[Test]
@@ -303,6 +454,49 @@ final class DispatcherRequestFactoryTest
         $docs = $request->getUploadedFiles()['docs'];
         Assert::same($docs[0]->getClientFilename(), 'a.txt');
         Assert::same($docs[1]->getClientFilename(), 'b.txt');
+    }
+
+    #[Test]
+    public function testMultipartFileNamesAreMangledLikeTextFields(): void
+    {
+        $multipart = new Multipart(
+            fields: [],
+            files: [
+                self::file('a.b', 'dot'),
+                self::file('c d', 'space'),
+                self::file('g.h[i.j]', 'nested'),
+                self::file('x[y][]', 'first'),
+                self::file('x[y][]', 'second'),
+                self::file('dup', 'earlier'),
+                self::file('dup', 'later'),
+            ],
+        );
+
+        $files = $this->create(self::request(method: 'POST', body: $multipart))->getUploadedFiles();
+
+        Assert::same(self::clientFilenames($files), [
+            'a_b' => 'dot',
+            'c_d' => 'space',
+            'g_h' => ['i.j' => 'nested'],
+            'x' => ['y' => ['first', 'second']],
+            'dup' => 'later',
+        ]);
+    }
+
+    #[Test]
+    #[DataSet(['u[v'], 'unclosed bracket')]
+    #[DataSet(['n]o'], 'stray closing bracket')]
+    #[DataSet(['p[q]r]'], 'text after a bracket')]
+    #[DataSet(['z[a]b[c]'], 'text between brackets')]
+    #[DataSet(['a[[b]]'], 'bracket inside a bracket')]
+    #[DataSet(['[m]'], 'no base name')]
+    public function testMultipartFileWithMalformedNameIsDropped(string $name): void
+    {
+        $multipart = new Multipart(fields: [], files: [self::file($name, 'bad'), self::file('ok', 'good')]);
+
+        $files = $this->create(self::request(method: 'POST', body: $multipart))->getUploadedFiles();
+
+        Assert::same(self::clientFilenames($files), ['ok' => 'good']);
     }
 
     #[Test]
@@ -373,6 +567,33 @@ final class DispatcherRequestFactoryTest
             $server,
             $tls,
             $receivedAt,
+        );
+    }
+
+    private static function file(string $name, string $clientFilename): UploadedFile
+    {
+        return new UploadedFile($name, $clientFilename, 'text/plain', [], self::fixture('image'), 463);
+    }
+
+    /**
+     * @param array<array-key, mixed> $files
+     * @return array<array-key, mixed>
+     */
+    private static function clientFilenames(array $files): array
+    {
+        return \array_map(
+            static fn(mixed $file): mixed => $file instanceof UploadedFileInterface
+                ? $file->getClientFilename()
+                : self::clientFilenames((array) $file),
+            $files,
+        );
+    }
+
+    private static function multipartWithFile(): Multipart
+    {
+        return new Multipart(
+            fields: [new FormField('name', 'John', [])],
+            files: [new UploadedFile('avatar', 'face.jpg', 'image/jpeg', [], self::fixture('image'), 463)],
         );
     }
 
