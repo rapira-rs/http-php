@@ -44,12 +44,16 @@ final readonly class DispatcherRequestFactory
         $request = $request->withProtocolVersion(\str_replace('HTTP/', '', $source->protocol));
 
         foreach ($source->headers as $name => $values) {
-            $request = $request->withHeader($name, $values);
+            // HTTP/2 may split cookies across several fields; a comma-joined line would fuse two pairs.
+            $request = $request->withHeader(
+                $name,
+                \strtolower($name) === 'cookie' ? \implode('; ', $values) : $values,
+            );
         }
 
         $request = $request
             ->withQueryParams($this->parseQuery($request->getUri()->getQuery()))
-            ->withCookieParams($this->parseCookies($source->headers));
+            ->withCookieParams($this->parseCookies($this->headerLine($source->headers, 'cookie', '; ')));
 
         return $this->populateBody($request, $source);
     }
@@ -95,7 +99,7 @@ final readonly class DispatcherRequestFactory
             if ($key !== 'CONTENT_TYPE' && $key !== 'CONTENT_LENGTH') {
                 $key = 'HTTP_' . $key;
             }
-            $params[$key] = \implode(', ', $values);
+            $params[$key] = \implode($key === 'HTTP_COOKIE' ? '; ' : ', ', $values);
         }
 
         return $params;
@@ -235,34 +239,53 @@ final readonly class DispatcherRequestFactory
     }
 
     /**
-     * @param array<non-empty-string, list<string>> $headers
+     * Parses a `Cookie` header the way PHP fills `$_COOKIE`: `;`-separated pairs with leading
+     * whitespace dropped, names taken literally and then mangled (`.` and space become `_`, brackets
+     * nest), values raw-URL-decoded (`+` stays `+`), an empty value for a pair without `=`, and the
+     * first value kept for a repeated plain name.
      *
-     * @return array<string, string>
+     * @return array<array-key, mixed>
      */
-    private function parseCookies(array $headers): array
+    private function parseCookies(string $header): array
     {
-        $cookies = [];
-        foreach (\explode(';', $this->headerLine($headers, 'cookie')) as $pair) {
-            $parts = \explode('=', $pair, 2);
-            if (\count($parts) !== 2) {
+        $pairs = [];
+        $seen = [];
+        foreach (\explode(';', $header) as $pair) {
+            [$name, $value] = \explode('=', \ltrim($pair, " \t\n\r\v\f"), 2) + [1 => ''];
+            if ($name === '') {
                 continue;
             }
-            $cookies[\trim($parts[0])] = \trim($parts[1]);
+
+            // Run the name through `parse_str()` alone to learn the key PHP would register it under.
+            \parse_str(\rawurlencode($name), $probe);
+            $key = \array_key_first($probe);
+            if ($key === null) {
+                continue;
+            }
+
+            // PHP drops a repeated plain name, but a bracketed one still nests into the existing key.
+            if (!\is_array($probe[$key]) && isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            // Re-encoded so `parse_str()` takes `+` and `&` literally instead of as its own syntax.
+            $pairs[] = \rawurlencode($name) . '=' . \rawurlencode(\rawurldecode($value));
         }
 
-        return $cookies;
+        return $this->parseQuery(\implode('&', $pairs));
     }
 
     /**
-     * Case-insensitive header lookup returning the comma-joined value.
+     * Case-insensitive header lookup returning the values joined with the separator.
      *
      * @param array<non-empty-string, list<string>> $headers
      */
-    private function headerLine(array $headers, string $name): string
+    private function headerLine(array $headers, string $name, string $separator = ', '): string
     {
         foreach ($headers as $key => $values) {
             if (\strtolower($key) === $name) {
-                return \implode(', ', $values);
+                return \implode($separator, $values);
             }
         }
 

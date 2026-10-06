@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/rapira-rs/sdk-php/compare/http-0.1.3...http-0.1.4) (2026-10-06)
+
+
+### Bug Fixes
+
+* **http:** parse the Cookie header the way PHP fills $_COOKIE ([f4e7249](https://github.com/rapira-rs/sdk-php/commit/f4e72495a349c92f8059591aa63acee0345b8973))
+
 ## [0.1.3](https://github.com/rapira-rs/sdk-php/compare/http-0.1.2...http-0.1.3) (2026-10-06)
 
 

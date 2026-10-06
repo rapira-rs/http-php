@@ -63,10 +63,93 @@ final class DispatcherRequestFactoryTest
     public function testCookiesAreParsedFromHeader(): void
     {
         $request = $this->create(self::request(headers: [
-            'Cookie' => ['a=1; b=2; malformed; c=3'],
+            'Cookie' => ['a=1; b=2;c=3'],
         ]));
 
         Assert::same($request->getCookieParams(), ['a' => '1', 'b' => '2', 'c' => '3']);
+    }
+
+    #[Test]
+    public function testCookieValuesAreRawUrlDecoded(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['sid=a%3Ab%3D; space=a%20b; plus=a+b; amp=x&y=1; bad=%zz; enc=%2B'],
+        ]));
+
+        Assert::same($request->getCookieParams(), [
+            'sid' => 'a:b=',
+            'space' => 'a b',
+            'plus' => 'a+b',
+            'amp' => 'x&y=1',
+            'bad' => '%zz',
+            'enc' => '+',
+        ]);
+    }
+
+    #[Test]
+    public function testCookieNamesAreNotDecoded(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['n%41me=1; a+b=2'],
+        ]));
+
+        Assert::same($request->getCookieParams(), ['n%41me' => '1', 'a+b' => '2']);
+    }
+
+    #[Test]
+    public function testFirstCookieWinsForRepeatedName(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['a=1; b=2; a=3; a.b=4; a_b=5'],
+        ]));
+
+        Assert::same($request->getCookieParams(), ['a' => '1', 'b' => '2', 'a_b' => '4']);
+    }
+
+    #[Test]
+    public function testBracketedCookieNamesNest(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['arr[]=1; arr[]=2; arr[k]=3; arr[k]=4; x[a.b]=5; s[]=6; s=7'],
+        ]));
+
+        Assert::same($request->getCookieParams(), [
+            'arr' => [0 => '1', 1 => '2', 'k' => '4'],
+            'x' => ['a.b' => '5'],
+            's' => ['6'],
+        ]);
+    }
+
+    #[Test]
+    public function testMultipleCookieHeadersAreJoinedWithSemicolon(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['a=1', 'b=2; a=3'],
+        ]));
+
+        Assert::same($request->getCookieParams(), ['a' => '1', 'b' => '2']);
+        Assert::same($request->getHeaderLine('Cookie'), 'a=1; b=2; a=3');
+        Assert::same($request->getServerParams()['HTTP_COOKIE'], 'a=1; b=2; a=3');
+    }
+
+    #[Test]
+    public function testCookieNamesWithDotsAndSpacesAreMangled(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ["a.b=1; c d=2;  \te=3; f =4"],
+        ]));
+
+        Assert::same($request->getCookieParams(), ['a_b' => '1', 'c_d' => '2', 'e' => '3', 'f_' => '4']);
+    }
+
+    #[Test]
+    public function testCookiePairsWithoutValue(): void
+    {
+        $request = $this->create(self::request(headers: [
+            'Cookie' => ['flag; empty=; =orphan; ; v= 1 '],
+        ]));
+
+        Assert::same($request->getCookieParams(), ['flag' => '', 'empty' => '', 'v' => ' 1 ']);
     }
 
     #[Test]
