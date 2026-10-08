@@ -213,18 +213,19 @@ final class DispatcherRequestFactoryTest
 
         $params = $request->getServerParams();
 
-        Assert::same($params['REMOTE_ADDR'], '/tmp/remote.sock');
+        Assert::same($params['REMOTE_ADDR'], '127.0.0.1');
+        Assert::same($params['REMOTE_PORT'], 0);
         Assert::same($params['SERVER_ADDR'], '/tmp/server.sock');
-        Assert::false(isset($params['REMOTE_PORT']));
         Assert::false(isset($params['SERVER_PORT']));
     }
 
     #[Test]
-    public function testUnnamedUnixPeerContributesNoAddress(): void
+    public function testUnnamedUnixPeerIsLoopback(): void
     {
         $request = $this->create(self::request(remote: new UnixAddress(null)));
 
-        Assert::false(isset($request->getServerParams()['REMOTE_ADDR']));
+        Assert::same($request->getServerParams()['REMOTE_ADDR'], '127.0.0.1');
+        Assert::same($request->getServerParams()['REMOTE_PORT'], 0);
     }
 
     #[Test]
@@ -288,18 +289,19 @@ final class DispatcherRequestFactoryTest
         Assert::same($params['GATEWAY_INTERFACE'], 'CGI/1.1');
         Assert::same($params['SERVER_SOFTWARE'], 'Rapira');
         Assert::same($params['REQUEST_SCHEME'], 'http');
-        Assert::same($params['SERVER_NAME'], 'Example.COM');
+        Assert::false(isset($params['SERVER_NAME']));
         Assert::same($params['HTTP_HOST'], 'Example.COM:8080');
         Assert::same($params['DOCUMENT_URI'], '/a/b');
         Assert::same($params['QUERY_STRING'], 'x=1');
     }
 
     #[Test]
-    public function testServerNameOfIpv6Authority(): void
+    public function testIpv6AuthorityReachesTheHostHeaderOnly(): void
     {
         $request = $this->create(self::request(uri: 'http://[::1]:8080/', authority: '[::1]:8080'));
 
-        Assert::same($request->getServerParams()['SERVER_NAME'], '::1');
+        Assert::same($request->getServerParams()['HTTP_HOST'], '[::1]:8080');
+        Assert::false(isset($request->getServerParams()['SERVER_NAME']));
     }
 
     #[Test]

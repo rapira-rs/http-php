@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/rapira-rs/sdk-php/compare/http-0.1.5...http-0.1.6) (2026-10-08)
+
+
+### Bug Fixes
+
+* **http:** leave the client's authority out of SERVER_NAME ([bc71e99](https://github.com/rapira-rs/sdk-php/commit/bc71e99d3050de59c470d55f394b0b8598011099))
+* **http:** put loopback in REMOTE_ADDR for a unix peer, as the SAPI does ([#16](https://github.com/rapira-rs/sdk-php/issues/16)) ([bc71e99](https://github.com/rapira-rs/sdk-php/commit/bc71e99d3050de59c470d55f394b0b8598011099))
+
 ## [0.1.5](https://github.com/rapira-rs/sdk-php/compare/http-0.1.4...http-0.1.5) (2026-10-06)
 
 
